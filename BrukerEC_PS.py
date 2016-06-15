@@ -25,10 +25,10 @@ from __future__ import print_function
 META = """
 Author: Lothar Krause <lkrause@cells.es>
 License: GPL3+
-$URL$
-$LastChangedBy$
-$Date$
-$Rev$
+$URL: https://svn.code.sf.net/p/tango-ds/code/DeviceClasses/PowerSupply/BrukerEC_PS/trunk/BrukerEC_PS.py $
+$LastChangedBy: sergiblanch $
+$Date: 2016-06-15 10:55:06 +0200 (Wed, 15 Jun 2016) $
+$Rev: 22283 $
 """
 # comment for testing merge feature
 # python standard imports
@@ -456,10 +456,12 @@ class BrukerEC_PS(PS.PowerSupply):
             else:
                 msg = 'control unit %r: %s (%d)' % (self.cab.host, exc.args[1], e)
             raise PS.PS_Exception(msg)
-        except cabinet.CanBusTimeout,exc:
+        except cabinet.CanBusTimeout as msg:
             # self.STAT.FAULT('Socket exception: %s'%(exc.args))
             # Not necessary to decay to fault, only alert that it have happen.
-            self._alarm(str(msg))
+            # self.STAT.COMM_ERROR(msg)
+            self.log.warn("In %s.cmd_seq(): %s" % (self.dev_name(), msg))
+            self.alarms += msg
         except Exception,e:
             msg = 'control unit %r: Exception! Review comunications' % (self.cab.host)
             raise PS.PS_Exception(msg)
@@ -687,9 +689,11 @@ class BrukerEC_PS(PS.PowerSupply):
             STAT.COMM_ERROR(m)
             self.socket_error_counter += 1
 
-        except cabinet.CanBusTimeout, m:
+        except cabinet.CanBusTimeout, msg:
             # STAT.COMM_FAULT(m)  # Not necessary to decay to fault,
-            self._alarm(str(msg))  # only alert that it have happen.
+            # STAT.COMM_ERROR(m)  # only alert that it have happen.
+            self.log.warn("In %s.UpdateState(): %s" % (self.dev_name(), msg))
+            self.alarms += msg
 
         except PS.PS_Exception, exc:
             self._alarm(str(exc))
@@ -834,7 +838,7 @@ class BrukerEC_PS(PS.PowerSupply):
     @PS.CommandExc
     def ObjInt(self, cobj):
         rs = self.cmd_seq('OBJ=%d' % cobj, 'VAL/','SCALED/')
-        if rs[0]=='*':
+        if rs is None or rs[0]=='*':
             raise PS.PS_Exception('time out or undefined can bus object %x'%cobj)
         else:
             if rs[1]=='*':
@@ -864,7 +868,7 @@ class BrukerEC_PS(PS.PowerSupply):
     @PS.CommandExc
     def ObjFloat(self, cobj):
         rs = self.cmd_seq('OBJ=%d' % cobj, 'VAL/','SCALED/')
-        if rs[0]=='*':
+        if rs is None or rs[0]=='*':
             raise PS.PS_Exception('time out or undefined can bus object %x' % cobj)
         else:
             if rs[1]=='*':
@@ -1523,6 +1527,9 @@ class BrukerEC_Cabinet(PS.PowerSupply):
         self.cab.restart_bsw_tcp = self.restart_bsw_tcp
         try:
             self.cab.reconnect()
+        except cabinet.CanBusTimeout as msg:
+            self.log.warn("In %s.init_device(): %s" % (self.dev_name(), msg))
+            self.alarms += msg
         except socket.error, err:
             self.log.warn(err)
         if not self.cab.is_connected:
@@ -1634,10 +1641,12 @@ class BrukerEC_Cabinet(PS.PowerSupply):
                 msg = str(err.filename)+': '+msg
             self.STAT.COMM_ERROR(msg)
 
-        except cabinet.CanBusTimeout:
+        except cabinet.CanBusTimeout as msg:
             # self.STAT.COMM_FAULT('CAN bus hanging')
             # Not necessary to decay to fault, only alert that it have happen.
-            self._alarm(str(msg))
+            # self.STAT.COMM_ERROR(msg)
+            self.log.warn("In %s.UpdateState(): %s" % (self.dev_name(), msg))
+            self.alarms += msg
 
         if cab.use_waveforms and cab.is_connected:
             try:

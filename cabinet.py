@@ -225,6 +225,9 @@ class CabinetControl(state.Module):
         try:
             return self.reconnect_core()
 
+        except CanBusTimeout as msg:
+            raise CanBusTimeout(msg)
+
         except socket.error, err:
             if reap and err.errno==ECONNREFUSED:
                 self.restart_bsw_tcp()
