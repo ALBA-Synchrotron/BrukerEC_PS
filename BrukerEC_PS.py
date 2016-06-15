@@ -291,9 +291,7 @@ class BrukerEC_PS(PS.PowerSupply):
 
         vdq = self.cache[aname] = self.query(aname)
         if vdq.value is None:
-            self._alarm('attempt to push change event for attribute %r w/o' +
-              'value' % aname
-            )
+            self.log.warn('attempt to push change event for attribute %r w/o value' % (aname))
         else:
             self.push_change_event(aname, *vdq.triple)
         return vdq.value
@@ -431,7 +429,9 @@ class BrukerEC_PS(PS.PowerSupply):
 
     def cmd(self, *commands, **kwargs):
         q = kwargs.get('q',False)
-        return '\n'.join(c for c in self.cmd_seq(*commands, q=q) if c)
+        sequence = self.cmd_seq(*commands, q=q)
+        if sequence is not None:
+            return '\n'.join(c for c in sequence if c)
 
     def cmd_seq(self, *commands, **kwargs):
         '''Executes a list of EC commands, returing a list of responses for
@@ -460,7 +460,7 @@ class BrukerEC_PS(PS.PowerSupply):
             # self.STAT.FAULT('Socket exception: %s'%(exc.args))
             # Not necessary to decay to fault, only alert that it have happen.
             # self.STAT.COMM_ERROR(msg)
-            self.log.warn("In %s.cmd_seq(): %s" % (self.dev_name(), msg))
+            self.log.warn("In %s.cmd_seq(): %s" % (self.get_name(), msg))
             self.alarms += msg
         except Exception,e:
             msg = 'control unit %r: Exception! Review comunications' % (self.cab.host)
@@ -692,7 +692,7 @@ class BrukerEC_PS(PS.PowerSupply):
         except cabinet.CanBusTimeout, msg:
             # STAT.COMM_FAULT(m)  # Not necessary to decay to fault,
             # STAT.COMM_ERROR(m)  # only alert that it have happen.
-            self.log.warn("In %s.UpdateState(): %s" % (self.dev_name(), msg))
+            self.log.warn("In %s.UpdateState(): %s" % (self.get_name(), msg))
             self.alarms += msg
 
         except PS.PS_Exception, exc:
@@ -1197,8 +1197,10 @@ class BrukerEC_PS(PS.PowerSupply):
             raise PS.PS_Exception(msg)
 
         payload = self.cmd(mnemonic+'/')
-        value = conv_fun(payload)
-        return VDQ(value, q=AQ_VALID)
+        if payload is not None:
+            value = conv_fun(payload)
+            return VDQ(value, q=AQ_VALID)
+        return VDQ(None, q=AQ_INVALID)
 
     def write_ec_attribute(self, attr, mnemonic, conv_fun):
         '''Executes EC set command 'mnemonic' in order to obtain the value of an
@@ -1528,7 +1530,7 @@ class BrukerEC_Cabinet(PS.PowerSupply):
         try:
             self.cab.reconnect()
         except cabinet.CanBusTimeout as msg:
-            self.log.warn("In %s.init_device(): %s" % (self.dev_name(), msg))
+            self.log.warn("In %s.init_device(): %s" % (self.get_name(), msg))
             self.alarms += msg
         except socket.error, err:
             self.log.warn(err)
@@ -1645,7 +1647,7 @@ class BrukerEC_Cabinet(PS.PowerSupply):
             # self.STAT.COMM_FAULT('CAN bus hanging')
             # Not necessary to decay to fault, only alert that it have happen.
             # self.STAT.COMM_ERROR(msg)
-            self.log.warn("In %s.UpdateState(): %s" % (self.dev_name(), msg))
+            self.log.warn("In %s.UpdateState(): %s" % (self.get_name(), msg))
             self.alarms += msg
 
         if cab.use_waveforms and cab.is_connected:

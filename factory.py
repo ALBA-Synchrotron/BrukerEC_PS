@@ -148,9 +148,13 @@ def add_ec_attr(
 def create_ec_qfun( mnemonic, conv=lambda x:x):
     # attribute write function
     def qfun(self):
-        val_str = self.cmd_seq(mnemonic+'/')[0]
-        val = conv(val_str)
-        return VDQ(val,q=PS.AQ_VALID)
+        if mnemonic is not None:
+            payload = self.cmd_seq(mnemonic+'/')
+            if payload is not None:
+                val_str = payload[0]
+                val = conv(val_str)
+                return VDQ(val,q=PS.AQ_VALID)
+        return VDQ(None,q=PS.AQ_INVALID)
     return qfun
 
 def create_ec_wfun(mnemonic, conv):
