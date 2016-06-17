@@ -411,7 +411,7 @@ class BrukerEC_PS(PS.PowerSupply):
         except Exception, exc:
             self.log.exception(str(exc))
 
-        self.cab.init_counter += 1
+        self.cab.reconnect_ct += 1
         return self._pstype
 
     @PS.ExceptionHandler

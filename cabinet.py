@@ -49,11 +49,14 @@ _CAB = None
 CAB_READY = 'cabinet ready'
 
 # how often commands shall be attempted
-COMMAND_RETRY = 3
+COMMAND_RETRY = 5
 
 def command_pause_retry(n):
     '''sleep for nth command attempt'''
     sleep(n*0.05)
+    # Up to COMMAND_RETRYs with 300ms each, plus the incremental wait:
+    # 50, 100, 150, 200, 250. Means 2250ms
+    # with the 3 retries of the original this was 1200ms
 
 def instance():
     global _CAB
@@ -170,12 +173,14 @@ class CabinetControl(state.Module):
         self.command_queue = deque()
 
         # counters
-        self.init_counter = 0
-        self.command_counter = 0
-        # counting can bus level timeouts
-        self.command_canbus_timeout = 0
-        # counting socket level timeouts
-        self.command_timeout = 0
+        self.reconnect_ct = 0
+        self.global_cmd_ct = 0  # since the beginning
+        self.global_cmd_canbus_timeout = 0  # counting can bus timeouts
+                                            # since the beginning
+        self.global_cmd_timeout = 0  # counting socket level timeouts
+                                     # since the beginning
+        self.cmd_ct_since_nok = 0  # oks between noks
+        self.cmd_dict = {}  # collect statistics for each command
         self.__log = None
         self.telnet_connection = None
 
@@ -264,7 +269,7 @@ class CabinetControl(state.Module):
         else:
             pst = self.type_hint
 
-        self.init_counter += 1
+        self.reconnect_ct += 1
         # re-assigns __class__ only if execution was successful
         self.__class__, self.desc = CAB_CT[pst]
         return self.is_connected
@@ -290,12 +295,13 @@ class CabinetControl(state.Module):
     def capture_can_bus_timeout(self, cmd):
         msg = 'CAN bus timeout on port {0} {1}\n'.format(self.active_port, cmd)
         self.traceback = ( msg + '\n'.join(traceback.format_stack()) )
-        self.log.warn("In capture_can_bus_timeout(): %r " % msg, exc_info=1)
-        self.command_canbus_timeout += 1
+        self.log.warn("In capture_can_bus_timeout(): %r " % msg)  #, exc_info=1)
+        self.global_cmd_canbus_timeout += 1
 
     def raise_can_bus_timeout(self, cmd):
         self.can_hang[self.active_port] = True
         msg = 'CAN bus timeout on port {0} {1}\n'.format(self.active_port, cmd)
+        self.global_cmd_canbus_timeout += 1
         raise CanBusTimeout("%r"%msg)
 
     def _command(self, cmd):
@@ -306,22 +312,22 @@ class CabinetControl(state.Module):
             traceback.print_exc()
             raise PS.PS_Exception('control %s not connected' % self.comm.hopo)
         cmd = cmd.upper().strip()
-        COM = self.comm
         txt = cmd+"\r"
         response = None
-        self.command_counter += 1
         canbus_timeout = 0
-        command_collection = UniqList()
+        cmdFullName = "%s %r"%(self.active_port, cmd)
+        if cmdFullName not in self.cmd_dict:
+            self.cmd_dict[cmdFullName] = {'ok': 0, 'nok': 0, 'since_nok': 0}
 
         # retries CAN bus commands COMMAND_RETRY times
         for r in range(COMMAND_RETRY):
             # communication pause before retry
             command_pause_retry(r)
-            COM.write(txt)
-            response = COM.readline()
+            self.comm.write(txt)
+            response = self.comm.readline()
             # indicates TCP socket timeout
             if not response:
-                self.command_timeout += 1
+                self.global_cmd_timeout += 1
                 self.log.debug("timed out reading")
                 msg = "timed out waiting %s for responding to %s" % \
                     (self.comm.hopo, cmd)
@@ -330,21 +336,30 @@ class CabinetControl(state.Module):
             if response[0]=='*':
                 self.capture_can_bus_timeout(cmd)
                 canbus_timeout += 1
-                command_collection.append("%s %r"%(self.active_port, cmd))
             else:
                 break
 
         if canbus_timeout > 0:
-            msg = ''.join("%s;" % cmd for cmd in command_collection)
-            raise CanBusTimeout("%d CAN BUS timeouts: %s" % (canbus_timeout, msg))
+            self.cmd_dict[cmdFullName]['nok'] += canbus_timeout
+            oks = self.cmd_dict[cmdFullName]['since_nok']
+            self.cmd_dict[cmdFullName]['since_nok'] = 0
+            msg = "%d CAN BUS timeouts: %s (after %d oks)"\
+                % (canbus_timeout, cmdFullName, oks)
+            self.log.warn(msg)
+            # raise CanBusTimeout(msg)
 
         if response[0]=='*':
             self.raise_can_bus_timeout(cmd)
+        else:
+            self.cmd_dict[cmdFullName]['ok'] += 1
+            self.cmd_dict[cmdFullName]['since_nok'] += 1
+            self.global_cmd_ct += 1
 
         payload = response.strip()
         if payload.startswith("E"):
             if payload in ERROR_RESPONSE:
-                msg = ERROR_RESPONSE[payload] % dict(cmd=cmd, port=self.active_port) + " ("+payload+")"
+                msg = ERROR_RESPONSE[payload]\
+                    % dict(cmd=cmd, port=self.active_port) + " ("+payload+")"
             else:
                 msg = payload
             raise PS.PS_Exception(msg)
@@ -355,7 +370,10 @@ class CabinetControl(state.Module):
         with self.lck:
             self.switch_port(port)
             canbus_timeout = 0
-            command_collection = UniqList()
+            cmdFullName = "%s %r"%(port, cmd)
+            if cmdFullName not in self.cmd_dict:
+                self.cmd_dict[cmdFullName] = {'ok': 0, 'nok': 0,
+                                              'since_nok': 0}
             for r in range(COMMAND_RETRY):
                 command_pause_retry(r)
                 response = self._command(cmd, **kwargs)
@@ -363,15 +381,22 @@ class CabinetControl(state.Module):
                 if code & CAN_BUS_TIMEOUT_CODE:
                     self.capture_can_bus_timeout(cmd)
                     canbus_timeout += 1
-                    command_collection += "%s %r"%(self.active_port, cmd)
                 else:
                     return code
         if canbus_timeout > 0:
-            msg = ''.join("%s;" % cmd for cmd in command_collection)
-            raise CanBusTimeout("%d CAN BUS timeouts: %s" % (canbus_timeout, msg))
+            self.cmd_dict[cmdFullName]['nok'] += canbus_timeout
+            oks = self.cmd_dict[cmdFullName]['since_nok']
+            self.cmd_dict[cmdFullName]['since_nok'] = 0
+            msg = "%d CAN BUS timeouts: %s (after %d oks)"\
+                % (canbus_timeout, cmdFullName, oks)
+            self.log.warn(msg)
+            # raise CanBusTimeout(msg)
         if code & CAN_BUS_TIMEOUT_CODE:
             self.raise_can_bus_timeout(cmd)
         else:
+            self.cmd_dict[cmdFullName]['ok'] += 1
+            self.cmd_dict[cmdFullName]['since_nok'] += 1
+            self.global_cmd_ct += 1
             return code
 
     def switch_port(self, port):
