@@ -1,0 +1,19 @@
+#!/usr/bin/python
+
+import PyTango as Tg
+
+DB = Tg.Database()
+
+
+server_list = DB.get_server_list('BrukerEC_PS/*')
+for serv in server_list:
+    dcl = DB.get_device_class_list(serv)
+    device_list = dcl[::2]
+    for dev_name in device_list:
+        dev = Tg.DeviceProxy(dev_name)
+        p = DB.get_device_property(dev_name, ['Channel'])
+        print p
+        if 'Channel' in p:
+          DB.delete_device_property(dev_name, ['Channel'])
+
+ 

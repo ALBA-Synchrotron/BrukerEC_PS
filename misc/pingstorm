@@ -1,0 +1,43 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+from __future__ import print_function
+from subprocess import PIPE, Popen
+import re
+from select import select
+from time import time, strftime, gmtime
+
+
+
+PAT_SUCCESS = re.compile(r'\d+ bytes from [^ ]+ \(.+\): ')
+# \(.+\): icmp_seq=\d+ ttl=\d+ time=\d+ ms')
+
+
+class PingMaster(object):
+
+        ping_cmd = [ 'ping', '-s0', '-A','-i0.2' ]
+
+ping = Popen(PING+['localhost'], stdout=PIPE)
+ping2  = Popen( PING+['localhost2'], stdout=PIPE)
+mup = { ping.stdout.fileno() : ping, ping2.stdout.fileno() : ping2 }
+read_set = [ ping.stdout.fileno() ]
+write_set = [ ]
+exc_set = read_set
+
+while 1:
+    ln = ping.stdout.readline().strip()
+    ping_return = ping.poll()
+
+
+    r,w,x = select( read_set, write_set, exc_set)
+    digest(r,x)
+    t0 = time()
+    date = strftime('%F %T',gmtime(t0))
+    for r in r:
+        ln = mup[r].stdout.readline().strip()
+        if PAT_SUCCESS.match(ln):
+            print(date,ln)
+            
+    for x in x:
+        print(x, mup[x])
+        
+    
