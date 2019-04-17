@@ -200,6 +200,14 @@ class BrukerEC_PS(PS.PowerSupply):
             self.STAT.FAULT(msg)
             return
 
+        try:
+            float(self.OffMaxCurrent)
+        except:
+            msg = 'Invalid property OffMaxCurrent'
+            self.log.error(msg)
+            self.STAT.FAULT(msg)
+            return
+
         # sets up cache of VDQ objects for safely manipulating and accessing
         # read values from within the device itself
         self.cache = dict(
@@ -714,10 +722,29 @@ class BrukerEC_PS(PS.PowerSupply):
 
     @PS.CommandExc
     def CabinetOff(self):
+        msg = ('For safety reasons this command is no longer allowed. You have'
+            ' to switch off each unit individually.')
+        raise PS.PS_Exception(msg)
         self.cab.power_off()
 
     @PS.CommandExc
     def Off(self):
+        # check that current is not above max safe off protection
+        curr = self.query_Current()
+        if curr.quality != AQ_VALID:
+            msg = ('Unable to find out if current is being delivered! '
+                'For safety reasons you must make sure that current delivered'
+                ' is below %s before switching off' % str(self.OffMaxCurrent))
+            self.log.error(msg)
+            raise PS.PS_Exception(msg)
+        elif abs(curr.value) > self.OffMaxCurrent:
+            msg = ('Abs output current is above %s. For safety reasons you must'
+                ' make sure that current delivered is below that value before '
+                'switching off' % str(self.OffMaxCurrent))
+            self.log.error(msg)
+            raise PS.PS_Exception(msg)
+        else:
+            pass
         try:
             if self.cab.use_waveforms and self.value('WaveGeneration'):
                 self._write('TriggerMask',0)
@@ -1175,6 +1202,22 @@ class BrukerEC_PS(PS.PowerSupply):
         '''ensures that ps is not ramped after calling the function,
            or exception is thrown.
         '''
+        curr = self.query_Current()
+        if curr.quality != AQ_VALID:
+            msg = ('Unable to find out if current is being delivered! '
+                'For safety reasons you must make sure that current delivered '
+                'is below %s before switching off' % str(self.OffMaxCurrent))
+            self.log.error(msg)
+            raise PS.PS_Exception(msg)
+        elif abs(curr.value) > self.OffMaxCurrent:
+            msg = ('Abs output current is above %s. For safety reasons you must'
+                ' make sure that current delivered is below that value before '
+                'switching off' % str(self.OffMaxCurrent))
+            self.log.error(msg)
+            raise PS.PS_Exception(msg)
+        else:
+            pass
+
         if self.pstype().has_trigger_mask:
             #WST=value: for PS with wf value means who many triggers will be accepted
             self.cmd('WTR=0')#value 0, means stop listen triggers
@@ -1355,9 +1398,15 @@ class BrukerEC_PS_Class(PS.PowerSupply_Class):
     ]
 
     device_property_list = PS.gen_property_list(cpl=class_property_list)
+
     device_property_list['TrigOnMaxOffset'] = [ DevDouble,
             'Trigger enable forbidden if WaveOffset above this value', 0.0
     ]
+
+    device_property_list['OffMaxCurrent'] = [ DevDouble,
+            'PS will not be switched off if current is above this value', 0.0
+    ]
+
     device_property_list['Wave'] = [ DevVarStringArray,
         'waveform interpolation, abscissa and form', []
     ]
