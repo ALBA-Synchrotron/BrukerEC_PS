@@ -192,6 +192,14 @@ class BrukerEC_PS(PS.PowerSupply):
     def init_device(self, cl=None, name=None):
         PS.PowerSupply.init_device(self, cl, name)
 
+        try:
+            float(self.TrigOnMaxOffset)
+        except:
+            msg = 'Invalid property TrigOnMaxOffset'
+            self.log.error(msg)
+            self.STAT.FAULT(msg)
+            return
+
         # sets up cache of VDQ objects for safely manipulating and accessing
         # read values from within the device itself
         self.cache = dict(
@@ -1299,6 +1307,20 @@ class BrukerEC_PS(PS.PowerSupply):
     def write_TriggerMask(self, attr):
         self._check_use_waveforms('attribute '+attr.get_name())
         value = attr.get_write_value()
+        if value!=0:  # if enabling make sure WaveOffset < TrigOnMaxOffset
+            wvo = self.query_ec('WOF', float)  # get waveoffset
+            if wvo.quality != AQ_VALID:
+                msg = ('Unable to find out if WaveOffset is < %s. Required to '
+                    'be below for safety reasons.' % str(self.TrigOnMaxOffset))
+                self.log.error(msg)
+                raise PS.PS_Exception(msg)
+            elif wvo.value > self.TrigOnMaxOffset:
+                msg = ('WaveOffset > %s. Required to be below for safety '
+                    'reasons.' % str(self.TrigOnMaxOffset))
+                self.log.error(msg)
+                raise PS.PS_Exception(msg)
+            else:
+                pass
         self.write_ec_attribute(attr, 'WTR', str)
         self.cache['TriggerMask'] = VDQ(value, q=AQ_VALID)
 
@@ -1333,6 +1355,9 @@ class BrukerEC_PS_Class(PS.PowerSupply_Class):
     ]
 
     device_property_list = PS.gen_property_list(cpl=class_property_list)
+    device_property_list['TrigOnMaxOffset'] = [ DevDouble,
+            'Trigger enable forbidden if WaveOffset above this value', 0.0
+    ]
     device_property_list['Wave'] = [ DevVarStringArray,
         'waveform interpolation, abscissa and form', []
     ]
