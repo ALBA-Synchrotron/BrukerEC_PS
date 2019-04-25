@@ -772,6 +772,15 @@ class BrukerEC_PS(PS.PowerSupply):
 
     @PS.CommandExc
     def ResetInterlocks(self):
+        # for safety reasons we disable external triggering because a high
+        # WaveOffset may damage the unit: once all interlocks are solved user
+        # will have to manually enable external triggering, but for doing so
+        # WaveOffset must be low
+        self.write_ec('TriggerMask', 0, 'WTR', str)
+        self.ResetInterlocksOnly()
+
+    @PS.CommandExc
+    def ResetInterlocksOnly(self):
         PS.PowerSupply.ResetInterlocks(self)
         self.__errors = self.faults+self.alarms
         self.cab.reconnect(reap=True)
@@ -1244,6 +1253,14 @@ class BrukerEC_PS(PS.PowerSupply):
         value = conv_fun(payload)
         return VDQ(value, q=AQ_VALID)
 
+    def write_ec(self, aname, value, mnemonic, conv_fun):
+        value_str = str(conv_fun(value))
+        wr_cmdstr = mnemonic+'='+value_str
+        self.cmd(wr_cmdstr,q=True)
+        if aname in self.cache:
+            self.cache[aname].quality = AQ_CHANGING
+        return value
+
     def write_ec_attribute(self, attr, mnemonic, conv_fun):
         '''Executes EC set command 'mnemonic' in order to obtain the value of an
            attribute and set it.
@@ -1455,7 +1472,7 @@ class BrukerEC_PS_Class(PS.PowerSupply_Class):
 
 factory.start(BrukerEC_PS,BrukerEC_PS_Class)
 # factory.add_mnemonic('On', 'DCP', tp=DevBoolean)
-factory.add_commands('On', 'Off', 'CabinetOn', 'CabinetOff', 'Cycle', 'AbortCycle',)
+factory.add_commands('On', 'Off', 'CabinetOn', 'CabinetOff', 'Cycle', 'AbortCycle', 'ResetInterlocksOnly')
 factory.add_cmd('ReadMachineStates',
     outd=[DevString, 'returns internal status machine codes of all submodule']
 )
@@ -1648,6 +1665,15 @@ class BrukerEC_Cabinet(PS.PowerSupply):
     #### Commands ####
     @PS.CommandExc
     def ResetInterlocks(self):
+        # for safety reasons we disable external triggering because a high
+        # WaveOffset may damage the unit: once all interlocks are solved user
+        # will have to manually enable external triggering, but for doing so
+        # WaveOffset must be low
+        self.cab.command_seq(self.Port, 'WTR=0')
+        self.ResetInterlocksOnly()
+
+    @PS.CommandExc
+    def ResetInterlocksOnly(self):
         PS.PowerSupply.ResetInterlocks(self)
         self.wavl.reconnect_reap()
         self.cab.reconnect(reap=True)
@@ -1798,6 +1824,10 @@ class BrukerEC_Cabinet_Class(PS.PowerSupply_Class):
     cmd_list['RebootControlUnit'] = [ [ Tg.DevVoid, 'reboots control unit'],
         [ Tg.DevVoid, ''],
         { 'display level' : Tg.DispLevel.EXPERT },
+    ]
+    cmd_list['ResetInterlocksOnly'] = [
+        [ Tg.DevVoid, ''],
+        [ Tg.DevVoid, ''],
     ]
     attr_list = PS.gen_attr_list(max_err=64)
     attr_list['ErrorCode'] = [[Tg.DevLong, Tg.SCALAR, Tg.READ],

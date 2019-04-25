@@ -952,6 +952,11 @@ class BrukerBend_PS(PS.PowerSupply):
         PS.PowerSupply.ResetInterlocks(self)
         self._command2('ResetInterlocks')
 
+    @PS.CommandExc
+    def ResetInterlocksOnly(self):
+        PS.PowerSupply.ResetInterlocks(self)
+        self._command2('ResetInterlocksOnly')
+
     @PS.AttrExc
     def read_WaveStatus(self, attr):
         try:
@@ -1071,6 +1076,7 @@ class BrukerBend_PS_Class(Tg.DeviceClass):
           'Sync' : [ [Tg.DevBoolean, 'whether to force synchronization even if some power supplies are not ready'],[Tg.DevVoid],
               { 'display level' : Tg.DispLevel.EXPERT }
           ],
+          'ResetInterlocksOnly' : [[Tg.DevVoid],[Tg.DevVoid]],
        })
 
         #       Attribute definitions
