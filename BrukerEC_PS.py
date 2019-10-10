@@ -731,7 +731,7 @@ class BrukerEC_PS(PS.PowerSupply):
     def Off(self):
         # check that current is not above max safe off protection
         curr = self.query_Current()
-        if curr.quality != AQ_VALID:
+        if curr.quality == AQ_INVALID:
             msg = ('Unable to find out if current is being delivered! '
                 'For safety reasons you must make sure that current delivered'
                 ' is below %s before switching off' % str(self.OffMaxCurrent))
@@ -1203,7 +1203,7 @@ class BrukerEC_PS(PS.PowerSupply):
            or exception is thrown.
         '''
         curr = self.query_Current()
-        if curr.quality != AQ_VALID:
+        if curr.quality == AQ_INVALID:
             msg = ('Unable to find out if current is being delivered! '
                 'For safety reasons you must make sure that current delivered '
                 'is below %s before switching off' % str(self.OffMaxCurrent))
@@ -1352,7 +1352,7 @@ class BrukerEC_PS(PS.PowerSupply):
         value = attr.get_write_value()
         if value!=0:  # if enabling make sure WaveOffset < TrigOnMaxOffset
             wvo = self.query_ec('WOF', float)  # get waveoffset
-            if wvo.quality != AQ_VALID:
+            if wvo.quality == AQ_INVALID:
                 msg = ('Unable to find out if WaveOffset is < %s. Required to '
                     'be below for safety reasons.' % str(self.TrigOnMaxOffset))
                 self.log.error(msg)
