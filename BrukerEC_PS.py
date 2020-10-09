@@ -238,6 +238,10 @@ class BrukerEC_PS(PS.PowerSupply):
         # aid in troubleshooting TCP socket related problems
         self.socket_error_counter = 0
 
+        # when initializing we have to set CurrentSetpoint, WaveOffset and
+        # TriggerMaskto to 0 for safety reasons, but this can't be done until
+        # the hardware is fully initialized
+        self.initialized_hw = False
 
     # Basic Utilities
     def query(self, aname):
@@ -654,6 +658,18 @@ class BrukerEC_PS(PS.PowerSupply):
 
             if t.name=='corrector' and PM.DOOR in alarms:
                 alarms.remove(PM.DOOR)
+
+            # Set CurrentSetpoint, WaveOffset and TriggerMaskto to 0 (safety)
+            if not self.initialized_hw:
+                try:
+                    self.write_ec('CurrentSetpoint', 0, 'CUR', repr)
+                    self.write_ec('WaveOffset', 0, 'WOF', str)
+                    self.write_ec('TriggerMask', 0, 'WTR', str)
+                    self.initialized_hw = True
+                except Exception as e:
+                    msg = 'Failed to initialize CurrentSetpoint and/or WaveOffset to 0'
+                    self.log.error('%s. Details:\n%s' % (msg, str(e)))
+                    self.STAT.FAULT(msg)
 
             # decides which state should be used
             # FAULT overrides everything else until Reset(Interlocks)
@@ -1259,6 +1275,8 @@ class BrukerEC_PS(PS.PowerSupply):
         self.cmd(wr_cmdstr,q=True)
         if aname in self.cache:
             self.cache[aname].quality = AQ_CHANGING
+        if aname == 'TriggerMask':  # why? (was already in write_TriggerMask)
+            self.cache['TriggerMask'] = VDQ(value, q=AQ_VALID)
         return value
 
     def write_ec_attribute(self, attr, mnemonic, conv_fun):
